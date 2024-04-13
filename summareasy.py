@@ -1,25 +1,39 @@
 import speech_recognition as sr
 import nltk
+import numpy as np
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.stem import PorterStemmer
 from pydub import AudioSegment
+import requests
+from bs4 import BeautifulSoup
+from rouge_score import rouge_scorer
+from sklearn.cluster import KMeans
 
-#A remplacer par le vrai fichier
-filename="file.mp3"
-#convert other format to .wav 
-#sound=AudioSegment.from_file(filename,format="filename.format")
-#file=sound.export("file.wav",format="wav")
-#sound.export(filename)
-
+def wikipedia(link):
+    #response= requests.get(url="https://en.wikipedia.org/wiki/Eulemur")
+    response= requests.get(url=link)
+    soup=BeautifulSoup(response.content,'html.parser')
+    main_content= soup.find('div',{'class':'mw-content-container'})
+    texts=[]
+    for section in main_content.find_all(['h2','h3']):
+        sibling = section.find_next_sibling()
+        while sibling :
+            if(sibling.name=='p' and sibling.get('id','') not in ['wikitable', 'references','Bibliographie']):
+                texts.append(sibling.text.strip())
+            sibling = sibling.find_next_sibling()
+    return ' '.join(texts)    
 def audio_to_text(filename):
-    with sr.AudioFile(filename) as source:
+    #convert other format to .wav 
+    sound=AudioSegment.from_file(filename)
+    sound.export("file.wav",format="wav")
+    #Nb: On doit decouper les audios en section de 1.5 minutes et boucler dessus.!! limiter ny length de google reco.
+    with sr.AudioFile("file.wav") as source:
         audio_data= r.record(source)
         text= r.recognize_google(audio_data)
     return text    
-
-def summarize_text(text, num_sentences=2):
+def summarize_text(text, num_sentences=1):
     # Prétraitement du texte
     stemmer=PorterStemmer()
     text = text.lower()
@@ -29,105 +43,81 @@ def summarize_text(text, num_sentences=2):
         stop_words = set(stopwords.words('english'))
         words = [stemmer.stem(word) for word in word_tokenize(sentence) if word.isalnum() and word not in stop_words]
         clean_sentences.append(' '.join(words))
-
-    # Calcul de l'importance des mots avec TF-IDF
-    vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform(clean_sentences)
-
-    # Calcul de la somme des scores TF-IDF par phrase
-    scores = tfidf_matrix.sum(axis=1)
-    #on prend les phrases avec le score le plus haut selon l'ordre du text
-    for tf_idf_text in sorted(zip(scores, sentences)):
-        final_text=[tf_idf_text[1] for score in sorted(scores, reverse=True)[:num_sentences] if score==tf_idf_text[0]]    
-    return ' '.join(final_text)
-
-text="""The best way to evaluate the performance of a language model is to embed it in
-    an application and measure how much the application improves. Such end-to-end
-    evaluation is called extrinsic evaluation. Extrinsic evaluation is the only way to extrinsic
-    evaluation
-    know if a particular improvement in the language model (or any component) is really
-    going to help the task at hand. Thus for evaluating n-gram language models that are
-    a component of some task like speech recognition or machine translation, we can
-    compare the performance of two candidate language models by running the speech
-    recognizer or machine translator twice, once with each language model, and seeing
-    which gives the more accurate transcription.
-    Unfortunately, running big NLP systems end-to-end is often very expensive. Instead, it’s helpful to have a metric that can be used to quickly evaluate potential
-    improvements in a language model. An intrinsic evaluation metric is one that mea- intrinsic
-    evaluation
-    sures the quality of a model independent of any application. In the next section we’ll
-    introduce perplexity, which is the standard intrinsic metric for measuring language
-    model performance, both for simple n-gram language models and for the more sophisticated neural large language models of Chapter 10.
-    In order to evaluate any machine learning model, we need to have at least three
-    training set distinct data sets: the training set, the development set, and the test set.
-    development
-    set
-    test set
-    The training set is the data we use to learn the parameters of our model; for
-    simple n-gram language models it’s the corpus from which we get the counts that
-    we normalize into the probabilities of the n-gram language model.
-    The test set is a different, held-out set of data, not overlapping with the training
-    set, that we use to evaluate the model. We need a separate test set to give us an
-    unbiased estimate of how well the model we trained can generalize when we apply
-    it to some new unknown dataset. A machine learning model that perfectly captured
-    the training data, but performed terribly on any other data, wouldn’t be much use
-    when it comes time to apply it to any new data or problem! We thus measure the
-    quality of an n-gram model by its performance on this unseen test set or test corpus.
-    How should we choose a training and test set? The test set should reflect the
-    language we want to use the model for. If we’re going to use our language model
-    for speech recognition of chemistry lectures, the test set should be text of chemistry
-    lectures. If we’re going to use it as part of a system for translating hotel booking requests from Chinese to English, the test set should be text of hotel booking requests.
-    If we want our language model to be general purpose, then the test test should be
-    drawn from a wide variety of texts. In such cases we might collect a lot of texts
-    from different sources, and then divide it up into a training set and a test set. It’s
-    important to do the dividing carefully; if we’re building a general purpose model,
-     EVALUATING LANGUAGE MODELS: PERPLEXITY
-    we don’t want the test set to consist of only text from one document, or one author,
-    since that wouldn’t be a good measure of general performance.
-    Thus if we are given a corpus of text and want to compare the performance of
-    two different n-gram models, we divide the data into training and test sets, and train
-    the parameters of both models on the training set. We can then compare how well
-    the two trained models fit the test set.
-    But what does it mean to “fit the test set”? The standard answer is simple:
-    whichever language model assigns a higher probability to the test set—which
-    means it more accurately predicts the test set—is a better model. Given two probabilistic models, the better model is the one that has a tighter fit to the test data or that
-    better predicts the details of the test data, and hence will assign a higher probability
-    to the test data.
-    Since our evaluation metric is based on test set probability, it’s important not to
-    let the test sentences into the training set. Suppose we are trying to compute the
-    probability of a particular “test” sentence. If our test sentence is part of the training
-    corpus, we will mistakenly assign it an artificially high probability when it occurs
-    in the test set. We call this situation training on the test set. Training on the test
-    set introduces a bias that makes the probabilities all look too high, and causes huge
-    inaccuracies in perplexity, the probability-based metric we introduce below.
-    Even if we don’t train on the test set, if we test our language model on it many
-    times after making different changes, we might implicitly tune to its characteristics,
-    by noticing which changes seem to make the model better. For this reason, we only
-    want to run our model on the test set once, or a very few number of times, once we
-    are sure our model is ready.
-    For this reason we normally instead have a third dataset called a development development
-    test
-    test set or, devset. We do all our testing on this dataset until the very end, and then
-    we test on the test once to see how good our model is.
-    How do we divide our data into training, development, and test sets? We want
-    our test set to be as large as possible, since a small test set may be accidentally unrepresentative, but we also want as much training data as possible. At the minimum,
-    we would want to pick the smallest test set that gives us enough statistical power
-    to measure a statistically significant difference between two potential models. It’s
-    important that the dev set be drawn from the same kind of text as the test set, since
-    its goal is to measure how we would do on the test set."""
-summary = summarize_text(text,num_sentences=4)
-print(summary)
-
-
-
-
-"""
-    Autre methode plus facile mais ne prend pas en compte l'ordre des phrases 
-    #print(sorted(zip(scores, sentences), reverse=True))
-    # Trier les phrases par score décroissant
-    ranked_sentences = [sentence for _, sentence in sorted(zip(scores, sentences), reverse=True)]
     
-    # Sélectionner les premières phrases pour former le résumé
-    summary = ' '.join(ranked_sentences[:num_sentences])
+    # Calcul de l'importance des mots avec TF-IDF
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = vectorizer.fit_transform(clean_sentences)
+    #calculs des scores
+    #la premiere et derniere phrases sont souvent plus importante=>poids++
+    max_importance=-1
+    scores={}
+    for i, sentence in enumerate(sentences):
+        tfidf_score=tfidf_matrix[i].sum()
+        if(i == 0 or i== len(clean_sentences)-1):
+            tfidf_score*=1.5
+        if tfidf_score > max_importance:
+            max_importance=tfidf_score
+        scores[tfidf_score]=sentence   
+    final_text=[]    
+    #print(sorted(scores, reverse=True))
+    #on prend les phrases avec le score le plus haut selon l'ordre du text
+    final_text=[sentence for score in scores for sc,sentence in sorted(scores.items(), reverse=True)[:num_sentences] if score==sc]
+    
+    #si l'ordre n'as pas d'importance: final_text=[se for score in sorted(sc, reverse=True)[:num_sentences] if score==sc] 
+    
+    return ' '.join(final_text)
+def main():
+    choices=[summarize_text,wikipedia,audio_to_text]
+    x=' '
+    while(x not in ['1','2','3']):
+        x=input("Tapez 1 pour resumé un text\nTapez 2 pour entrer un lien vers wikipedia \nTapez 3 pour resumer un fichier audio\n")
+    #++conditions à faire
+    if x== '1':
+        texte=input("Entrer votre text: ")
+           
+    if x== '2':
+       lien=input("Entrer le lien wikipedia: ")
+       texte= wikipedia(lien)
+    if x== '3':   
+        filename=input("Entrer le nom du fichier: ")
+        texte=audio_to_text(filename)
+    print(summarize_text(texte))    
 
-    return summary
+
+text="""
+    Generative AI, a subset of artificial intelligence, encompasses a diverse range of algorithms and techniques aimed at creating content autonomously. One prominent approach is Generative Adversarial Networks (GANs), where two neural networks, the generator and the discriminator, compete against each other to produce increasingly realistic outputs. Another popular method is Recurrent Neural Networks (RNNs), particularly Long Short-Term Memory (LSTM) networks, which excel at generating sequences of data such as text, music, or even video.
+
+    Generative AI has found applications in various fields, including art, music composition, and storytelling. Artists and musicians use generative models to explore new creative possibilities, generating unique pieces of art or music that push the boundaries of human imagination. Additionally, generative AI has practical applications in content generation, such as generating personalized recommendations, writing product descriptions, or even creating entire marketing campaigns.
+
+    However, the widespread adoption of generative AI also raises ethical concerns. There is a risk of misuse, such as generating fake news articles or deepfake videos to spread misinformation. Moreover, generative models trained on biased datasets may perpetuate existing biases in their outputs, raising questions about fairness and equity.
+
+    Despite these challenges, the potential of generative AI to revolutionize creative expression and problem-solving cannot be ignored. As researchers continue to innovate in this field, it is crucial to address ethical considerations and ensure responsible use of generative AI technology"""
+
+human_summary="""
+    Generative AI, a subset of artificial intelligence, 
+    utilizes algorithms like GANs and LSTM networks to autonomously create diverse content such as art, music, and text. 
+    While it offers innovative possibilities for creative expression and practical applications like content generation,    
+    concerns regarding ethics and bias accompany its widespread adoption. 
+    Addressing these challenges is essential to harness the full potential of generative AI responsibly."""
+summary = summarize_text(text,num_sentences=4)
+
+print('------------resume--------------\n',summary)
+scorer= rouge_scorer.RougeScorer(['rouge1','rouge2','rougeL'],use_stemmer=True)
+scores_i=scorer.score(text, summary)
+scores_j=scorer.score(text, human_summary)
+print(scores_i)
+print(scores_j)
+
+  """Clustering qui n'a pas donné de bon resultat
+    k=num_sentences
+    kmeans= KMeans(n_clusters=k)
+    kmeans.fit(tfidf_matrix)
+    final_text=[]
+    for cluster_id in range(k):
+        cluster_sentences=[sentences[i] for i,label in enumerate(kmeans.labels_) if label==cluster_id]
+        #print(f"{cluster_id+1} : {len(cluster_sentences)}")
+        center=np.argmax([np.sum(tfidf_matrix[i]) for i,label in enumerate(kmeans.labels_) if label == cluster_id])
+        final_text.append(cluster_sentences[center])
+        #print(cluster_sentences)
+   
     """
